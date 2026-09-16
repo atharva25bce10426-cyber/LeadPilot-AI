@@ -1,0 +1,6 @@
+{
+  "name": "LeadPilot AI",
+  "description": "AI Lead Generation Agent for local businesses - automatically find potential customers, qualify leads, and book more clients.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
