@@ -447,12 +447,10 @@ Adjust the structure above to match your actual repository.
 Developed as an AI-powered solution for modern local-business customer acquisition.
 
 Contributors
-Your Name — AI / Development
-Team Member 2 — Backend
-Team Member 3 — Frontend
-Team Member 4 — AI / Data
-Team Member 5 — UI/UX
-Team Member 6 — Research / Business
+Riya uppal — AI / Development
+Soham — Backend
+Atharva — Frontend, UI/UX
+
 📌 Project Status
 
 🟢 Prototype / Demo
@@ -468,16 +466,3 @@ This project is intended for educational, research and prototype purposes.
 Your AI-powered digital sales team.
 
 Discover → Qualify → Engage → Follow Up → Convert
-
-
-### 🔥 For your GitHub, put this at the very top
-
-I would make your repository tagline:
-
-> **🤖 LeadPilot AI — A multi-agent AI sales workforce that discovers, qualifies, engages, and converts local prospects.**
-
-And your GitHub description:
-
-> **AI-powered multi-agent platform for local lead discovery, qualification, customer engagement, appointment scheduling, and sales automation.**
-
-This README makes the project sound like an actual **SaaS/product architecture**, rather than simply “a website with three AI buttons,” which is exactly how you want the reviewer to understand it.
