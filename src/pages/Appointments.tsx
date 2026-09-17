@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CalendarCheck, Video, Clock } from 'lucide-react';
-import { INITIAL_APPOINTMENTS } from '../services/leadService';
+import { INITIAL_APPOINTMENTS, getStoredAppointments, subscribeAppointments } from '../services/leadService';
 import { AppointmentItem } from '../types';
 import { getMeetLink, isValidMeetUrl, openGoogleMeet } from '../services/googleCalendar';
 
 export const Appointments: React.FC = () => {
-  const [appointments] = useState<AppointmentItem[]>(INITIAL_APPOINTMENTS);
+  const [appointments, setAppointments] = useState<AppointmentItem[]>(() => getStoredAppointments());
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  useEffect(() => {
+    return subscribeAppointments((updated) => setAppointments(updated));
+  }, []);
 
   const showToast = (text: string, isError = false) => {
     setToastMessage({ text, isError });

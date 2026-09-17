@@ -404,3 +404,144 @@ export const INITIAL_AI_LOGS: AiLogEntry[] = [
     type: 'score',
   },
 ];
+
+// In-memory + LocalStorage reactive state for dynamic updates
+const LEADS_STORAGE_KEY = 'leadpilot_leads_data_v1';
+const APPOINTMENTS_STORAGE_KEY = 'leadpilot_appointments_data_v1';
+const LOGS_STORAGE_KEY = 'leadpilot_ai_logs_data_v1';
+
+type Listener<T> = (data: T) => void;
+const leadListeners = new Set<Listener<LeadItem[]>>();
+const appointmentListeners = new Set<Listener<AppointmentItem[]>>();
+const logListeners = new Set<Listener<AiLogEntry[]>>();
+
+export function getStoredLeads(): LeadItem[] {
+  try {
+    const raw = localStorage.getItem(LEADS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return INITIAL_LEADS;
+}
+
+export function addStoredLead(newLead: LeadItem): LeadItem[] {
+  const current = getStoredLeads();
+  const updated = [newLead, ...current.filter((l) => l.id !== newLead.id)];
+  try {
+    localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  leadListeners.forEach((fn) => fn(updated));
+  return updated;
+}
+
+export function updateStoredLeadStatus(leadId: string, status: LeadItem['status']): LeadItem[] {
+  const current = getStoredLeads();
+  const updated = current.map((l) => {
+    if (l.id === leadId) {
+      return {
+        ...l,
+        status,
+        activityHistory: [
+          {
+            id: `act-${Date.now()}`,
+            timestamp: 'Just now',
+            action: `Status updated to ${status}`,
+            note: `Updated autonomously by AI Sales Agent pipeline action.`,
+          },
+          ...l.activityHistory,
+        ],
+      };
+    }
+    return l;
+  });
+  try {
+    localStorage.setItem(LEADS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  leadListeners.forEach((fn) => fn(updated));
+  return updated;
+}
+
+export function subscribeLeads(fn: Listener<LeadItem[]>): () => void {
+  leadListeners.add(fn);
+  return () => {
+    leadListeners.delete(fn);
+  };
+}
+
+export function getStoredAppointments(): AppointmentItem[] {
+  try {
+    const raw = localStorage.getItem(APPOINTMENTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return INITIAL_APPOINTMENTS;
+}
+
+export function addStoredAppointment(newApt: AppointmentItem): AppointmentItem[] {
+  const current = getStoredAppointments();
+  const updated = [newApt, ...current.filter((a) => a.id !== newApt.id)];
+  try {
+    localStorage.setItem(APPOINTMENTS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  appointmentListeners.forEach((fn) => fn(updated));
+  return updated;
+}
+
+export function subscribeAppointments(fn: Listener<AppointmentItem[]>): () => void {
+  appointmentListeners.add(fn);
+  return () => {
+    appointmentListeners.delete(fn);
+  };
+}
+
+export function getStoredAiLogs(): AiLogEntry[] {
+  try {
+    const raw = localStorage.getItem(LOGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return INITIAL_AI_LOGS;
+}
+
+export function addStoredAiLog(entry: Omit<AiLogEntry, 'id'> & { id?: string }): AiLogEntry[] {
+  const current = getStoredAiLogs();
+  const newEntry: AiLogEntry = {
+    id: entry.id || `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    timestamp: entry.timestamp,
+    message: entry.message,
+    type: entry.type,
+  };
+  const updated = [...current.slice(-50), newEntry];
+  try {
+    localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+  logListeners.forEach((fn) => fn(updated));
+  return updated;
+}
+
+export function subscribeAiLogs(fn: Listener<AiLogEntry[]>): () => void {
+  logListeners.add(fn);
+  return () => {
+    logListeners.delete(fn);
+  };
+}

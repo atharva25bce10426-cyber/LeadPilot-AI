@@ -11,34 +11,73 @@ import {
   MapPin,
   Target,
   Zap,
+  Bot,
+  MessageSquare,
+  PhoneCall,
+  ArrowRight,
+  CheckCircle2,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../services/AuthContext';
-import { INITIAL_AI_LOGS } from '../services/leadService';
-import { AiLogEntry } from '../types';
+import {
+  INITIAL_AI_LOGS,
+  getStoredAiLogs,
+  addStoredAiLog,
+  subscribeAiLogs,
+} from '../services/leadService';
+import {
+  getStoredSubAgents,
+  toggleSubAgentStatus,
+  subscribeSubAgents,
+  getSimulatedCoordinationEvents,
+} from '../services/agentService';
+import { AiLogEntry, SubAgentId, SubAgentInfo } from '../types';
+import { ChatbotModal } from '../components/agents/ChatbotModal';
+import { ReceptionistModal } from '../components/agents/ReceptionistModal';
+import { SalesAgentModal } from '../components/agents/SalesAgentModal';
 
 export const AiAgentView: React.FC = () => {
   const { user } = useAuth();
   const [isRunning, setIsRunning] = useState(true);
-  const [logs, setLogs] = useState<AiLogEntry[]>(INITIAL_AI_LOGS);
+  const [logs, setLogs] = useState<AiLogEntry[]>(() => getStoredAiLogs());
   const [searchRadius, setSearchRadius] = useState('25 miles');
   const [dailyQuota, setDailyQuota] = useState('50');
+  const [subAgents, setSubAgents] = useState<SubAgentInfo[]>(() => getStoredSubAgents());
+  const [activeModal, setActiveModal] = useState<SubAgentId | null>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  // Sync sub-agents
+  useEffect(() => {
+    return subscribeSubAgents((updated) => setSubAgents(updated));
+  }, []);
+
+  // Sync terminal logs
+  useEffect(() => {
+    return subscribeAiLogs((updated) => setLogs(updated));
+  }, []);
 
   // Auto-scroll terminal
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // Periodic simulated agent log when active
+  // Periodic simulated agent log & sub-agent coordination when active
   useEffect(() => {
     if (!isRunning) return;
 
     const interval = setInterval(() => {
       const now = new Date();
       const timeStr = now.toTimeString().split(' ')[0];
-      const samples = [
+
+      const activeSubAgentIds = subAgents
+        .filter((a) => a.status === 'active')
+        .map((a) => a.id);
+
+      const coordinationEvents = getSimulatedCoordinationEvents(activeSubAgentIds);
+
+      const standardSamples = [
         {
-          message: `Inspecting Google Business profile for new local clinic in ${user?.location || 'Austin, TX'}...`,
+          message: `Inspecting Google Business profile for new local targets in ${user?.location || 'Austin, TX'}...`,
           type: 'search' as const,
         },
         {
@@ -46,7 +85,7 @@ export const AiAgentView: React.FC = () => {
           type: 'analysis' as const,
         },
         {
-          message: 'Lead score calculated: 95% Match. Adding to outreach queue.',
+          message: 'Lead score calculated: 95% Match. Dispatched to qualification queue.',
           type: 'score' as const,
         },
         {
@@ -54,39 +93,37 @@ export const AiAgentView: React.FC = () => {
           type: 'outreach' as const,
         },
       ];
-      const randomSample = samples[Math.floor(Math.random() * samples.length)];
 
-      setLogs((prev) => [
-        ...prev.slice(-30),
-        {
-          id: `log-${Date.now()}`,
-          timestamp: timeStr,
-          message: randomSample.message,
-          type: randomSample.type,
-        },
-      ]);
+      // Blend standard logs with sub-agent coordination events
+      const allCandidates = [...standardSamples, ...coordinationEvents];
+      const randomSample = allCandidates[Math.floor(Math.random() * allCandidates.length)];
+
+      addStoredAiLog({
+        timestamp: timeStr,
+        message: randomSample.message,
+        type: randomSample.type,
+      });
     }, 4500);
 
     return () => clearInterval(interval);
-  }, [isRunning, user]);
+  }, [isRunning, user, subAgents]);
 
   const handleRunManualScan = () => {
     const timeStr = new Date().toTimeString().split(' ')[0];
-    setLogs((prev) => [
-      ...prev,
-      {
-        id: `log-${Date.now()}`,
-        timestamp: timeStr,
-        message: `Manual scan triggered for ${user?.location || 'Austin, TX'} within ${searchRadius}.`,
-        type: 'search',
-      },
-      {
-        id: `log-${Date.now() + 1}`,
-        timestamp: timeStr,
-        message: 'Aggregating 42 newly registered business certificates & web domains...',
-        type: 'prospect',
-      },
-    ]);
+    addStoredAiLog({
+      timestamp: timeStr,
+      message: `Manual scan triggered for ${user?.location || 'Austin, TX'} within ${searchRadius}.`,
+      type: 'search',
+    });
+    addStoredAiLog({
+      timestamp: timeStr,
+      message: 'Aggregating 42 newly registered business certificates & web domains...',
+      type: 'prospect',
+    });
+  };
+
+  const handleToggleSubAgent = (id: SubAgentId) => {
+    toggleSubAgentStatus(id);
   };
 
   const getLogColor = (type: AiLogEntry['type']) => {
@@ -108,8 +145,12 @@ export const AiAgentView: React.FC = () => {
     }
   };
 
+  const chatbotAgent = subAgents.find((a) => a.id === 'chatbot') || subAgents[0];
+  const receptionistAgent = subAgents.find((a) => a.id === 'receptionist') || subAgents[1];
+  const salesAgent = subAgents.find((a) => a.id === 'sales') || subAgents[2];
+
   return (
-    <div className="space-y-6 animate-in fade-in">
+    <div className="space-y-8 animate-in fade-in pb-12">
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -136,12 +177,12 @@ export const AiAgentView: React.FC = () => {
             {isRunning ? (
               <>
                 <Pause className="w-3.5 h-3.5" />
-                <span>Pause Agent</span>
+                <span>Pause Master Agent</span>
               </>
             ) : (
               <>
                 <Play className="w-3.5 h-3.5" />
-                <span>Resume Agent</span>
+                <span>Resume Master Agent</span>
               </>
             )}
           </button>
@@ -163,7 +204,7 @@ export const AiAgentView: React.FC = () => {
         {/* Left Column: Live Status & Controls */}
         <div className="space-y-5">
           
-          <div className="rounded-2xl bg-[#0a0e1a] border border-blue-500/30 p-5 space-y-4">
+          <div className="rounded-2xl bg-[#0a0e1a] border border-blue-500/30 p-5 space-y-4 shadow-xl">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-semibold">
                 Agent Engine Status
@@ -194,14 +235,67 @@ export const AiAgentView: React.FC = () => {
                 <strong className="text-blue-400 font-mono">{user?.industry || 'Real Estate'}</strong>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Model:</span>
+                <span className="text-slate-400">Master Controller:</span>
                 <strong className="text-slate-300 font-mono">LeadPilot-Pro-Agent-v4</strong>
               </div>
             </div>
           </div>
 
+          {/* Master Agent Coordination: ACTIVE SUB-AGENTS */}
+          <div className="rounded-2xl bg-[#0a0e1a] border border-slate-800 p-5 space-y-3.5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-300 font-bold flex items-center gap-2">
+                <Bot className="w-4 h-4 text-blue-400" />
+                <span>Active Sub-Agents</span>
+              </span>
+              <span className="text-[10px] font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded">
+                Coordinated Hierarchy
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {subAgents.map((sa) => {
+                const isAct = sa.status === 'active';
+                return (
+                  <div
+                    key={sa.id}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/70 border border-slate-800/90 text-xs transition-all hover:border-slate-700"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          isAct ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                        }`}
+                      />
+                      <span className="text-slate-200 font-semibold">{sa.name}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                          isAct
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        }`}
+                      >
+                        {isAct ? 'ACTIVE' : 'PAUSED'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSubAgent(sa.id)}
+                        className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 border border-slate-700/80 transition-colors"
+                      >
+                        {isAct ? 'Pause' : 'Activate'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Quick Adjustment Sliders */}
-          <div className="rounded-2xl bg-[#0a0e1a] border border-slate-800 p-5 space-y-4">
+          <div className="rounded-2xl bg-[#0a0e1a] border border-slate-800 p-5 space-y-4 shadow-xl">
             <h3 className="text-xs font-mono uppercase tracking-wider text-slate-300 font-bold flex items-center gap-2">
               <Sliders className="w-4 h-4 text-blue-400" />
               <span>Agent Tuning</span>
@@ -218,10 +312,10 @@ export const AiAgentView: React.FC = () => {
                     key={r}
                     type="button"
                     onClick={() => setSearchRadius(r.replace(' mi', ' miles'))}
-                    className={`py-1.5 text-xs rounded-lg font-mono border ${
+                    className={`py-1.5 text-xs rounded-lg font-mono border transition-all ${
                       searchRadius.startsWith(r.replace(' mi', ''))
                         ? 'bg-blue-600/20 border-blue-500 text-blue-300 font-bold'
-                        : 'bg-slate-900 border-slate-800 text-slate-400'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-300'
                     }`}
                   >
                     {r}
@@ -264,13 +358,14 @@ export const AiAgentView: React.FC = () => {
               </span>
             </div>
 
-            <span className="text-[10px] font-mono text-slate-500">
-              Live stdout
-            </span>
+            <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Multi-Agent Swarm Live</span>
+            </div>
           </div>
 
           {/* Terminal Output */}
-          <div className="p-4 flex-1 h-[460px] overflow-y-auto font-mono text-xs space-y-2.5 selection:bg-blue-500/40">
+          <div className="p-4 flex-1 h-[480px] overflow-y-auto font-mono text-xs space-y-2.5 selection:bg-blue-500/40">
             {logs.map((log) => (
               <div key={log.id} className="flex items-start gap-2.5 leading-relaxed">
                 <span className="text-slate-600 select-none shrink-0">[{log.timestamp}]</span>
@@ -283,14 +378,354 @@ export const AiAgentView: React.FC = () => {
           </div>
 
           {/* Terminal Input prompt */}
-          <div className="px-4 py-3 bg-[#080c14] border-t border-slate-800/80 flex items-center gap-2 text-xs font-mono text-slate-400">
-            <span className="text-emerald-400 font-bold">$</span>
-            <span className="text-slate-500">AI agent is scanning autonomously. Press &quot;Trigger Instant Scan&quot; to force crawl.</span>
+          <div className="px-4 py-3 bg-[#080c14] border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-slate-400">
+            <div className="flex items-center gap-2">
+              <span className="text-emerald-400 font-bold">$</span>
+              <span className="text-slate-500">Autonomous multi-agent loop active. Press &quot;Trigger Instant Scan&quot; to force discovery.</span>
+            </div>
+            <span className="text-[11px] text-slate-600 hidden sm:inline">PID: 41892</span>
           </div>
 
         </div>
 
       </div>
+
+      {/* AI SUB-AGENTS SECTION */}
+      <div className="space-y-5 pt-2">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-slate-800/80 pb-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-blue-400 font-bold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Workforce Expansion</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight mt-0.5">
+              AI SUB-AGENTS
+            </h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Specialized AI employees working together to discover, qualify, engage, and convert local prospects.
+            </p>
+          </div>
+
+          <div className="text-xs font-mono text-slate-500">
+            Status: <span className="text-emerald-400 font-bold">{subAgents.filter((a) => a.status === 'active').length} of 3 Active</span>
+          </div>
+        </div>
+
+        {/* 3 Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          
+          {/* Card 1: AI CHATBOT */}
+          <div className="rounded-2xl bg-[#0a0e1a] border border-slate-800 hover:border-blue-500/40 p-6 flex flex-col justify-between transition-all duration-200 shadow-xl group">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-105 transition-transform">
+                  <MessageSquare className="w-6 h-6" />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold ${
+                      chatbotAgent.status === 'active'
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        chatbotAgent.status === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                      }`}
+                    />
+                    {chatbotAgent.status === 'active' ? 'ACTIVE' : 'PAUSED'}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSubAgent('chatbot')}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-xs font-mono"
+                    title={chatbotAgent.status === 'active' ? 'Pause Chatbot' : 'Activate Chatbot'}
+                  >
+                    {chatbotAgent.status === 'active' ? (
+                      <Pause className="w-3.5 h-3.5" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">AI Chatbot</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Engages website visitors and captures qualified leads.
+                </p>
+              </div>
+
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-3 gap-2.5 pt-2">
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Conversations
+                  </span>
+                  <span className="text-base font-bold font-mono text-white">
+                    {chatbotAgent.metrics.primaryValue}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Qualified Leads
+                  </span>
+                  <span className="text-base font-bold font-mono text-emerald-400">
+                    {chatbotAgent.metrics.secondaryValue}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Response Rate
+                  </span>
+                  <span className="text-base font-bold font-mono text-blue-400">
+                    {chatbotAgent.metrics.tertiaryValue}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-6">
+              <button
+                type="button"
+                onClick={() => setActiveModal('chatbot')}
+                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-blue-500/20 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>Open Chatbot</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveModal('chatbot')}
+                className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+              >
+                <span>Test Chatbot</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Card 2: AI RECEPTIONIST */}
+          <div className="rounded-2xl bg-[#0a0e1a] border border-slate-800 hover:border-purple-500/40 p-6 flex flex-col justify-between transition-all duration-200 shadow-xl group">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 transition-transform">
+                  <PhoneCall className="w-6 h-6" />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold ${
+                      receptionistAgent.status === 'active'
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        receptionistAgent.status === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                      }`}
+                    />
+                    {receptionistAgent.status === 'active' ? 'ACTIVE' : 'PAUSED'}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSubAgent('receptionist')}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-xs font-mono"
+                    title={receptionistAgent.status === 'active' ? 'Pause Receptionist' : 'Activate Receptionist'}
+                  >
+                    {receptionistAgent.status === 'active' ? (
+                      <Pause className="w-3.5 h-3.5" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">AI Receptionist</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Handles inquiries, qualifies callers, and schedules appointments.
+                </p>
+              </div>
+
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-3 gap-2.5 pt-2">
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Calls Handled
+                  </span>
+                  <span className="text-base font-bold font-mono text-white">
+                    {receptionistAgent.metrics.primaryValue}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Appointments
+                  </span>
+                  <span className="text-base font-bold font-mono text-purple-400">
+                    {receptionistAgent.metrics.secondaryValue}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Qualified Calls
+                  </span>
+                  <span className="text-base font-bold font-mono text-emerald-400">
+                    {receptionistAgent.metrics.tertiaryValue}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-6">
+              <button
+                type="button"
+                onClick={() => setActiveModal('receptionist')}
+                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-purple-500/20 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>Open Receptionist</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveModal('receptionist')}
+                className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+              >
+                <span>Test Call</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Card 3: AI SALES AGENT */}
+          <div className="rounded-2xl bg-[#0a0e1a] border border-slate-800 hover:border-emerald-500/40 p-6 flex flex-col justify-between transition-all duration-200 shadow-xl group">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
+                  <Target className="w-6 h-6" />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold ${
+                      salesAgent.status === 'active'
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        salesAgent.status === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                      }`}
+                    />
+                    {salesAgent.status === 'active' ? 'ACTIVE' : 'PAUSED'}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleSubAgent('sales')}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-xs font-mono"
+                    title={salesAgent.status === 'active' ? 'Pause Sales Agent' : 'Activate Sales Agent'}
+                  >
+                    {salesAgent.status === 'active' ? (
+                      <Pause className="w-3.5 h-3.5" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">AI Sales Agent</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Follows up with prospects and moves leads toward conversion.
+                </p>
+              </div>
+
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-3 gap-2.5 pt-2">
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Leads Managed
+                  </span>
+                  <span className="text-base font-bold font-mono text-white">
+                    {salesAgent.metrics.primaryValue}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Follow-ups
+                  </span>
+                  <span className="text-base font-bold font-mono text-blue-400">
+                    {salesAgent.metrics.secondaryValue}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block truncate">
+                    Meetings Booked
+                  </span>
+                  <span className="text-base font-bold font-mono text-emerald-400">
+                    {salesAgent.metrics.tertiaryValue}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-6">
+              <button
+                type="button"
+                onClick={() => setActiveModal('sales')}
+                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>Open Sales Agent</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveModal('sales')}
+                className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+              >
+                <span>Test Sales Agent</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Sub-Agent Modals */}
+      <ChatbotModal
+        agent={chatbotAgent}
+        isOpen={activeModal === 'chatbot'}
+        onClose={() => setActiveModal(null)}
+        onToggleStatus={() => handleToggleSubAgent('chatbot')}
+      />
+
+      <ReceptionistModal
+        agent={receptionistAgent}
+        isOpen={activeModal === 'receptionist'}
+        onClose={() => setActiveModal(null)}
+        onToggleStatus={() => handleToggleSubAgent('receptionist')}
+      />
+
+      <SalesAgentModal
+        agent={salesAgent}
+        isOpen={activeModal === 'sales'}
+        onClose={() => setActiveModal(null)}
+        onToggleStatus={() => handleToggleSubAgent('sales')}
+      />
 
     </div>
   );

@@ -11,15 +11,19 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
-import { INITIAL_LEADS } from '../services/leadService';
+import { INITIAL_LEADS, getStoredLeads, subscribeLeads } from '../services/leadService';
 import { LeadItem } from '../types';
 
 export const LeadsList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
-  const [leads, setLeads] = useState<LeadItem[]>(INITIAL_LEADS);
+  const [leads, setLeads] = useState<LeadItem[]>(() => getStoredLeads());
   const [exportNotice, setExportNotice] = useState(false);
+
+  React.useEffect(() => {
+    return subscribeLeads((updated) => setLeads(updated));
+  }, []);
 
   const statuses = ['All', 'New', 'Contacted', 'Responded', 'Appointment Booked', 'Qualified'];
   const industries = ['All', 'Real Estate', 'Dental Clinics', 'Salon & Beauty', 'Home Services'];

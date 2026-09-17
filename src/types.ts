@@ -181,3 +181,50 @@ export interface AiLogEntry {
   type: 'search' | 'prospect' | 'analysis' | 'score' | 'outreach' | 'success';
 }
 
+export type SubAgentId = 'chatbot' | 'receptionist' | 'sales';
+export type SubAgentStatus = 'active' | 'paused';
+
+export interface SubAgentInfo {
+  id: SubAgentId;
+  name: string;
+  roleTitle: string;
+  subtitle: string;
+  description: string;
+  status: SubAgentStatus;
+  metrics: {
+    primaryLabel: string;
+    primaryValue: string | number;
+    secondaryLabel: string;
+    secondaryValue: string | number;
+    tertiaryLabel: string;
+    tertiaryValue: string | number;
+  };
+}
+
+export interface ChatbotConfig {
+  greeting: string;
+  servicesEnabled: string[];
+  pricingRange: string;
+  businessHours: string;
+  location: string;
+  leadQualificationFields: string[];
+}
+
+export interface ReceptionistConfig {
+  businessHours: string;
+  autoAnswer: boolean;
+  collectInfo: boolean;
+  qualifyLeads: boolean;
+  offerBooking: boolean;
+  transferUrgent: boolean;
+  forwardingPhone: string;
+}
+
+export interface SalesAgentMetrics {
+  leadsAssigned: number;
+  followUpsSent: number;
+  responses: number;
+  meetingsBooked: number;
+  conversionRate: number;
+}
+
